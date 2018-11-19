@@ -1,0 +1,178 @@
+# Environment Configuration
+environments:
+  - name: acceptance
+    provider: ecs-fargate
+    loadbalancer:
+      hostedzone: fargate.example.com
+      name: example-stg
+  - name: production
+    provider: ecs-fargate
+    loadbalancer:
+      hostedzone: fargate.example.com
+      name: example-prd
+
+# CloudFormation Template Overrides
+templates:
+  mu-iam-service-example-srv-acceptance:
+    Resources:
+      EcsTaskRole:
+        Properties:
+          Policies:
+          - PolicyName: get-secrets
+            PolicyDocument:
+              Statement:
+              - Effect: Allow
+                Action:
+                - ssm:GetParameter
+                Resource: '*'
+      ImageUploadUser:
+        Type: AWS::IAM::User
+        Properties:
+          Policies:
+          - PolicyName: content-upload
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+              - Effect: Allow
+                Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+                - s3:GetObjectVersionTagging
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+                - s3:DeleteObjectTagging
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:PutObjectTagging
+                - s3:ListBucket
+                - s3:ListAllMyBuckets
+                - s3:ListBucketVersions
+                Resource: '*'
+      ImageUploadUserAccessKey:
+        Type: AWS::IAM::AccessKey
+        Properties:
+          UserName:
+            Ref: 'ImageUploadUser'
+  mu-service-example-srv-acceptance:
+    Resources:
+      ElbTargetGroup:
+        Properties:
+          Matcher:
+            HttpCode: 200-302
+          TargetGroupAttributes:
+          - Key: stickiness.enabled
+            Value: true
+          - Key: stickiness.type
+            Value: lb_cookie
+          - Key: stickiness.lb_cookie.duration_seconds
+            Value: '21600'
+      UserUploadBucket:
+        Type: AWS::S3::Bucket
+  mu-iam-service-example-srv-production:
+    Resources:
+      EcsTaskRole:
+        Properties:
+          Policies:
+          - PolicyName: get-secrets
+            PolicyDocument:
+              Statement:
+              - Effect: Allow
+                Action:
+                - ssm:GetParameter
+                Resource: '*'
+      ImageUploadUser:
+        Type: AWS::IAM::User
+        Properties:
+          Policies:
+          - PolicyName: content-upload
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+              - Effect: Allow
+                Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+                - s3:GetObjectVersionTagging
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+                - s3:DeleteObjectTagging
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:PutObjectTagging
+                - s3:ListBucket
+                - s3:ListAllMyBuckets
+                - s3:ListBucketVersions
+                Resource: '*'
+      ImageUploadUserAccessKey:
+        Type: AWS::IAM::AccessKey
+        Properties:
+          UserName:
+            Ref: 'ImageUploadUser'
+  mu-service-example-srv-production:
+    Resources:
+      ElbTargetGroup:
+        Properties:
+          Matcher:
+            HttpCode: 200-302
+          TargetGroupAttributes:
+          - Key: stickiness.enabled
+            Value: true
+          - Key: stickiness.type
+            Value: lb_cookie
+          - Key: stickiness.lb_cookie.duration_seconds
+            Value: '21600'
+      UserUploadBucket:
+        Type: AWS::S3::Bucket
+
+# Service Configuration
+service:
+  name: example-srv
+  assignPublicIp: true
+  desiredCount: 2
+  minSize: 2
+  maxSize: 10
+  port: 80
+  cpu: 1024
+  memory: 1024
+  targetCPUUtilization: 75
+  healthEndpoint: /
+  pathPatterns:
+  - /*
+  environment:
+    WORDPRESS_DB_HOST: ${DatabaseEndpointAddress}:${DatabaseEndpointPort}
+    WORDPRESS_DB_USER: ${DatabaseMasterUsername}
+    WORDPRESS_DB_PASSWORD: ${DatabaseMasterPassword}
+    WORDPRESS_DB_NAME: ${DatabaseName}
+    USER_UPLOAD_BUCKET: ${UserUploadBucket}
+    USER_UPLOAD_REGION: us-east-1
+    SSM_USER_UPLOAD_KEY_PARAM: S3AccessKeyID
+    SSM_USER_UPLOAD_SAK_PARAM: S3AccessKey
+  pipeline:
+    source:
+      provider: GitHub
+      repo: nicholasgriffintn/example-fargate
+    acceptance:
+      disabled: false
+      environment: acceptance
+    production:
+      disabled: true
+      environment: production
+    notify:
+      - nicholas.griffin@example.com
+  database:
+      name: wordpress
+      engine: aurora
+      instanceClass: db.t2.small
+      iamAuthentication: false
+      masterUsername: admin
+      engineMode: serverless
+      allocatedStorage: 10
+      environmentConfig:                        
+        acceptance:
+          engineMode: serverless
+          minSize: 2
+          maxSize: 2
+        production:
+          engineMode: serverless
+          minSize: 2
+          maxSize: 8
